@@ -16,28 +16,41 @@ if [ ! -f "$SOURCE" ]; then
     exit 1
 fi
 
-FILE_LIST=""
+# Create a temporary file with the list of valid files
+VALID_FILES=$(mktemp)
 
-# Read file list line-by-line
+# Read file list line-by-line and check for existence
 while IFS= read -r FILE_NAME; do
-    if [ -f "$FILE_NAME" ] || [ -d "$FILE_NAME" ]; then
-        FILE_LIST="$FILE_LIST \"$FILE_NAME\""
+    # Remove potential Windows carriage returns
+    CLEAN_FILE_NAME=$(echo "$FILE_NAME" | tr -d '\r')
+
+    # !! BUG FIX: Skip empty lines !!
+    if [ -z "$CLEAN_FILE_NAME" ]; then
+        continue
+    fi
+
+    if [ -e "$CLEAN_FILE_NAME" ]; then # Use -e to check for existence (file or directory)
+        echo "$CLEAN_FILE_NAME" >> "$VALID_FILES"
     else
-        echo "Warning: $FILE_NAME doesn't exist. Skipping..."
+        echo "Warning: $CLEAN_FILE_NAME doesn't exist. Skipping..."
     fi
 done < "$SOURCE"
 
-if [ -z "$FILE_LIST" ]; then
+if [ ! -s "$VALID_FILES" ]; then
     echo "No valid files to back up. Exiting."
+    rm "$VALID_FILES"
     exit 1
 fi
 
 echo "Starting Archive..."
-# Use `eval` to properly interpret quotes around file names
-eval tar -czf "\"$DESTINATION\"" $FILE_LIST 2>/dev/null
+# Use the --files-from option to read the list of files
+tar -czf "$DESTINATION" --files-from="$VALID_FILES" 2>/dev/null
 
 if [ $? -eq 0 ]; then
     echo "Archive COMPLETED at: $DESTINATION"
 else
     echo "Failed to create archive."
 fi
+
+# Clean up the temporary file
+rm "$VALID_FILES"
